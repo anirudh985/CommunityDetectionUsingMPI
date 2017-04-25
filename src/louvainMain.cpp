@@ -25,6 +25,8 @@ int main(int argc, char** argv){
 	unsigned long numOfVerticesToMerge = 0;
 	unsigned long *finalCommunities = (unsigned long *) malloc(G->numOfVertices * sizeof(unsigned long));
 
+	numOfVerticesToMerge = vertexFollowing(G, finalCommunities);
+
 
 
 	return 0;

@@ -8,12 +8,13 @@
 #include <mpi.h>
 #include <omp.h>
 #include <map>
+#include "utilityFunctions.h"
 
 using namespace std;
 
 
 // Assumes MPI::Init is already called in main
-double parallelLouvianMethod(Graph *G, unsigned long *communityInfo, double Lower,
+double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 				double threshold, double *totTime, int *numItr){
 
 	int numberOfThreads = omp_get_num_threads();
@@ -21,8 +22,8 @@ double parallelLouvianMethod(Graph *G, unsigned long *communityInfo, double Lowe
 	unsigned long numOfVertices = G->numOfVertices;
 	unsigned long numOfEdges = G->numOfEdges;
 	unsigned long* vertexStartPointers = G->vertexStartPointers; // size of this is numOfVerticesOnProc + 1
-	unsigned long* startVertices = G->startVertices;			   // size of this is numOfEdges
-	unsigned long* destinationVertices = G->destinationVertices; // size of this is numOfEdges
+	unsigned long* startVertices = G->startVertices;			   // size of this is numOfEdgesOnProc
+	unsigned long* destinationVertices = G->destinationVertices; // size of this is numOfEdgesOnProc
 	double* weights = G->weights;
 
 
@@ -194,7 +195,7 @@ double parallelLouvianMethod(Graph *G, unsigned long *communityInfo, double Lowe
 	free(updateSizeOfCommunities);
 	free(updateDegreesOfCommunities);
 
-	return 0;
+	return prevModularity;
 
 }
 
@@ -265,21 +266,6 @@ void sumVertexDegrees(unsigned long &vertexStartPointers,
 		sizeOfCommunities[i] = 1;
 	}
 
-}
-
-unsigned long getNumOfVerticesOnProc(unsigned long numOfEdges,
-							unsigned long &startVertices){
-	int size = MPI::COMM_WORLD.Get_size();
-	int rank = MPI::COMM_WORLD.Get_rank();
-
-	unsigned long numOfEdgesOnProc = numOfEdges / size;
-	if(rank == size - 1){
-		numOfEdgesOnProc = numOfEdges % size;
-	}
-
-	unsigned long startVertexOnProc = startVertices[0];
-	unsigned long endVertexOnProc = startVertices[numOfEdgesOnProc - 1];
-	return endVertexOnProc - startVertexOnProc;
 }
 
 double calculateConstantForSecondTerm(unsigned long numOfVerticesOnProc,
