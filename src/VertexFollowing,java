@@ -1,0 +1,112 @@
+package pc.vertex.code;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.HashMap;
+import java.util.HashSet;
+
+public class VertexFollowing {
+	
+	public static final int MAX_WORD_SIZE = 7;
+	
+	public static void main(String[] args) {
+		VertexFollowing vf = new VertexFollowing();
+		try {
+			vf.readFile("C:\\Users\\Odin1\\Documents\\CommunityDetectionUsingMPI\\src\\out.txt");
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+	
+	public void readFile(String filePath) throws IOException {
+		FileReader fr = new FileReader(filePath);
+		BufferedReader br = new BufferedReader(fr);
+		String line;
+		
+		HashMap<Long, Integer> occurenceCounter = new HashMap<Long, Integer>();
+		
+		while((line = br.readLine()) != null) {
+			String s[] = line.split("	");
+			Long source = Long.valueOf(s[0]);
+			if(occurenceCounter.containsKey(source)) {
+				Integer count = occurenceCounter.get(source);
+				occurenceCounter.put(source, ++count);
+			} else {
+				occurenceCounter.put(source, 1);
+			}
+		}
+		
+		PrintWriter writer = new PrintWriter("C:\\Users\\Odin1\\Documents\\CommunityDetectionUsingMPI\\src\\out1.txt", "UTF-8");
+		
+		FileReader fr2 = new FileReader(filePath);
+		BufferedReader br2 = new BufferedReader(fr2);
+		
+		HashMap<Long, Double> selfEdge = new HashMap<Long, Double>();
+		HashSet<Long> removed = new HashSet<Long>();
+		
+		while((line = br2.readLine()) != null) {
+			String s[] = line.split("	");
+			Long source = Long.valueOf(s[0]);
+			Long destination = Long.valueOf(s[1]);
+			
+			if((selfEdge.containsKey(source) && destination > source)) {
+				// Write to file
+				writer.println(appendZero(source.toString(), source.toString().length()) + "	" + 
+						appendZero(source.toString(), source.toString().length()) +"	"+
+						appendZeroForDouble(selfEdge.get(source).toString(), selfEdge.get(source).toString().length()));
+				selfEdge.remove(source);
+				continue;
+			} else if (selfEdge.containsKey(source - 1)) {
+				source = source - 1;
+				writer.println(appendZero(source.toString(), source.toString().length()) + "	" + 
+						appendZero(source.toString(), source.toString().length()) +"	"+
+						appendZeroForDouble(selfEdge.get(source).toString(), selfEdge.get(source).toString().length()));
+				selfEdge.remove(source);
+				continue;
+			}
+			
+			if(removed.contains(destination)) {
+				continue;
+			}
+			
+			if(occurenceCounter.get(source) == 1) {
+				if(selfEdge.containsKey(Long.valueOf(s[1]))) {
+					Double weight = selfEdge.get(Long.valueOf(s[1])) + Double.valueOf(s[2]);
+					selfEdge.put(Long.valueOf(s[1]), weight);
+				} else {
+					selfEdge.put(Long.valueOf(s[1]), Double.valueOf(s[2]));
+				}
+				removed.add(source);
+			} else {
+				writer.println(line);
+			}
+		}
+		
+		writer.close();
+		br.close();
+		br2.close();
+	}
+	
+	public class Node {
+		public Long source;
+		public Long destination;
+		public Double weight;
+	}
+	
+	private String appendZero(String s, int currLen) {
+		for (int i = 0; i < MAX_WORD_SIZE - currLen; i++) {
+			s = "0" + s;
+		}
+		return s;
+	}
+
+	private String appendZeroForDouble(String s, int currLen) {
+		for (int i = 0; i < 2 * MAX_WORD_SIZE - currLen; i++) {
+			s = "0" + s;
+		}
+		return s;
+	}
+
+}
