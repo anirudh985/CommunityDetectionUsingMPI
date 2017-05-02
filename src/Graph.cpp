@@ -14,5 +14,9 @@ Graph::Graph() {
 
 Graph::~Graph() {
 	// TODO Auto-generated destructor stub
+	free(vertexStartPointers);
+	free(startVertices);
+	free(destinationVertices);
+	free(weights);
 }
 

@@ -7,7 +7,9 @@
 
 #include "louvainMultiPhase.h"
 
-void runLouvain(Graph &G, unsigned long &finalCommunities, double threshold, double C_threshold){
+using namespace std;
+
+void runLouvain(Graph *G, unsigned long *finalCommunities, double threshold){
 
 	int numProcs = MPI::COMM_WORLD.Get_size();
 	int rank = MPI::COMM_WORLD.Get_rank();
@@ -20,9 +22,9 @@ void runLouvain(Graph &G, unsigned long &finalCommunities, double threshold, dou
 
 	double prevModularity = -1;
 	double currModularity = -1;
-	unsigned long numClusters;
+	unsigned long numClusters = 0;
 
-	Graph* newGraph;
+	Graph *newGraph;
 
 
 	unsigned long *C = (unsigned long *) malloc (numOfVertices * sizeof(unsigned long));
@@ -39,14 +41,14 @@ void runLouvain(Graph &G, unsigned long &finalCommunities, double threshold, dou
 	while(true){
 		prevModularity = currModularity;
 
-		currMod = parallelLouvianMethod(G, C, currModularity, threshold, &tmpTime, &tmpItr);
+		currModularity = louvain(G, C, currModularity, threshold, &tmpTime, &tmpItr, rank, numProcs);
 		totTimeClustering += tmpTime;
 		totItr += tmpItr;
 
-		numClusters = renumberClustersContiguously(C, numOfVertices);
-		printf("Number of unique clusters: %ld\n", numClusters);
+		numClusters = renumberClustersContiguously(C, G->numOfVertices);
+//		printf("Number of unique clusters: %ld\n", numClusters);
 
-		if(phase == 1){
+		if(phaseNumber == 1){
 			#pragma omp parallel for
 			for (unsigned long i = 0; i < numOfVertices; i++) {
 				finalCommunities[i] = C[i];
@@ -55,27 +57,22 @@ void runLouvain(Graph &G, unsigned long &finalCommunities, double threshold, dou
 		else{
 			#pragma omp parallel for
 			for (unsigned long i = 0; i < numOfVertices; i++) {
-				assert(finalCommunities[i] < numOfVertices);
+				assert(finalCommunities[i] < G->numOfVertices);
 				if(finalCommunities[i] >= 0)
 					finalCommunities[i] = C[finalCommunities[i]];
 			}
 		}
 
-		if((phase > 200) || (totItr > 10000)){
+		if((phaseNumber > 200) || (totItr > 10000)){
 			break;
 		}
 
 		if(currModularity - prevModularity > threshold){
-			newGraph = (Graph*)malloc(sizeof(Graph));
-			assert(newGraph != 0);
+			newGraph = new Graph();
 			tmpTime = consolidateGraphForNextPhase(G, newGraph, C, numClusters);
 			totTimeBuildingPhase += tmpTime;
 
-			free(G->vertexStartPointers);
-			free(G->startVertices);
-			free(G->destinationVertices);
-			free(G->weights);
-			free(G);
+			delete G;
 
 			G = newGraph;
 			G->vertexStartPointers = newGraph->vertexStartPointers;
@@ -96,6 +93,9 @@ void runLouvain(Graph &G, unsigned long &finalCommunities, double threshold, dou
 			phaseNumber++;
 
 			}
+		else{
+			break;
+		}
 
 	}
 
@@ -104,10 +104,10 @@ void runLouvain(Graph &G, unsigned long &finalCommunities, double threshold, dou
 		printf("********************************************\n");
 		printf("*********    Compact Summary   *************\n");
 		printf("********************************************\n");
-		printf("Total number of phases         : %ld\n", phase);
-		printf("Total number of iterations     : %ld\n", totItr);
+		printf("Total number of phases         : %d\n", phaseNumber);
+		printf("Total number of iterations     : %d\n", totItr);
 		printf("Final number of clusters       : %ld\n", numClusters);
-		printf("Final modularity               : %lf\n", prevMod);
+		printf("Final modularity               : %lf\n", prevModularity);
 		printf("Total time for clustering      : %lf\n", totTimeClustering);
 		printf("Total time for building phases : %lf\n", totTimeBuildingPhase);
 		printf("********************************************\n");
@@ -116,11 +116,5 @@ void runLouvain(Graph &G, unsigned long &finalCommunities, double threshold, dou
 	}
 
 	free(C);
-	if(G != 0) {
-		free(G->vertexStartPointers);
-		free(G->startVertices);
-		free(G->destinationVertices);
-		free(G->weights);
-		free(G);
-	}
+	delete G;
 }

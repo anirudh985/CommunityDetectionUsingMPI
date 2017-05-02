@@ -5,13 +5,10 @@
  *      Author: osu8229
  */
 
-#include <iostream>
+
 #include "utilityFunctions.h"
-#include <omp.h>
-#include <mpi.h>
-#include <map>
-#include <vector>
-#include <cstdlib>
+
+using namespace std;
 
 unsigned long vertexFollowing(Graph *G, unsigned long * communities){
 
@@ -20,7 +17,7 @@ unsigned long vertexFollowing(Graph *G, unsigned long * communities){
 	unsigned long* vertexStartPointers = G->vertexStartPointers; // size of this is numOfVerticesOnProc + 1
 	unsigned long* startVertices = G->startVertices;			   // size of this is numOfEdgesOnProc
 	unsigned long* destinationVertices = G->destinationVertices; // size of this is numOfEdgesOnProc
-	double* weights = G->weights;
+	long* weights = G->weights;
 
 	unsigned long numVerticesToMerge = 0;
 
@@ -41,15 +38,15 @@ unsigned long vertexFollowing(Graph *G, unsigned long * communities){
 
 
 unsigned long getNumOfVerticesOnProc(unsigned long numOfEdges,
-							unsigned long &startVertices){
+							unsigned long *startVertices){
 	int numProcs = MPI::COMM_WORLD.Get_size();
 	int rank = MPI::COMM_WORLD.Get_rank();
 
-	unsigned long numOfEdgesOnProc = getNumOfEdgesOnProc(numOfEdges, rank, size);
+	unsigned long numOfEdgesOnProc = getNumOfEdgesOnProc(numOfEdges, rank, numProcs);
 
 	unsigned long startVertexOnProc = startVertices[0];
 	unsigned long endVertexOnProc = startVertices[numOfEdgesOnProc - 1];
-	return endVertexOnProc - startVertexOnProc;
+	return endVertexOnProc - startVertexOnProc + 1;
 }
 
 unsigned long getNumOfEdgesOnProc(unsigned long numOfEdges, int rank, int numProcs){
@@ -63,7 +60,7 @@ unsigned long getNumOfEdgesOnProc(unsigned long numOfEdges, int rank, int numPro
 
 //WARNING: Will overwrite the old cluster vector
 //Returns the number of unique clusters
-unsigned long renumberClustersContiguously(unsigned long &C, unsigned long size) {
+unsigned long renumberClustersContiguously(unsigned long *C, unsigned long size) {
 #ifdef PRINT_DETAILED_STATS_
   printf("Within renumberClustersContiguously()\n");
 #endif
@@ -89,13 +86,13 @@ unsigned long renumberClustersContiguously(unsigned long &C, unsigned long size)
     }//End of if()
   }//End of for(i)
   time1 = omp_get_wtime() - time1;
-  printf("Time to renumber clusters: %lf\n", time1);
+//  printf("Time to renumber clusters: %lf\n", time1);
 
   return numUniqueClusters; //Return the number of unique cluster ids
 }//End of renumberClustersContiguously()
 
 
-void calculateRanges(unsigned long& valuesOnEachProc, unsigned long& valuesOnEachProcPrefixSum, int rank, int numProcs, unsigned long valueToDivideAmongProcs){
+void calculateRanges(unsigned long* valuesOnEachProc, unsigned long* valuesOnEachProcPrefixSum, int rank, int numProcs, unsigned long valueToDivideAmongProcs){
 	unsigned long quotient = valueToDivideAmongProcs / numProcs;
 	int remainder = valueToDivideAmongProcs % numProcs;
 	valuesOnEachProcPrefixSum[0] = 0;
@@ -114,31 +111,37 @@ void calculateRanges(unsigned long& valuesOnEachProc, unsigned long& valuesOnEac
 }
 
 // Currently supports the numOfEdges in the integer range
-double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, unsigned long numClusters){
+// Expects both G and newG to be initialized (only G and newG should be pointing to some memory, not the values inside them)
+double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long *C, unsigned long numClusters){
 
 	int numProcs = MPI::COMM_WORLD.Get_size();
 	int rank = MPI::COMM_WORLD.Get_rank();
 
 	double total = 0, totItr = 0;
+
+	double time1, time2, time;
+
+	time1 = omp_get_wtime();
+
 	unsigned long numOfVertices = G->numOfVertices;
 	unsigned long numOfEdges = G->numOfEdges;
 	unsigned long* vertexStartPointers = G->vertexStartPointers; // size of this is numOfVerticesOnProc + 1
 	unsigned long* startVertices = G->startVertices;			   // size of this is numOfEdgesOnProc
 	unsigned long* destinationVertices = G->destinationVertices; // size of this is numOfEdgesOnProc
-	double* weights = G->weights;
+	long* weights = G->weights;
 //	unsigned long numOfEdgesOnProc = getSizeOfArray(G->startVertices);
 	// OR
 	unsigned long numOfEdgesOnProc = getNumOfEdgesOnProc(numOfEdges, rank, numProcs);
 
 
 
-	map<unsigned long,double>** neighborClustersMap = (map<unsigned long,double>**) malloc(numClusters*sizeof(map<unsigned long,double>*));
+	map<unsigned long,long>** neighborClustersMap = (map<unsigned long,long>**) malloc(numClusters*sizeof(map<unsigned long,long>*));
 	assert(neighborClustersMap != 0);
 
 	  //Add for a self loop with zero weight
 	#pragma omp parallel for
 	for (unsigned long i = 0; i < numClusters; i++) {
-		neighborClustersMap[i] = new map<unsigned long,double>();
+		neighborClustersMap[i] = new map<unsigned long,long>();
 		(*(neighborClustersMap[i]))[i] = 0;
 	}
 
@@ -160,9 +163,10 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
         unsigned long currVertexNeighborCluster = C[destinationVertices[i]];
         assert(C[currVertexNeighborCluster] < numClusters);
 
-        map<unsigned long, double>::iterator it;
+        map<unsigned long, long>::iterator it;
 
         omp_set_lock(&neighClustLocks[currVertexCluster]);  // Locking the currVertexCluster Map
+
         it = neighborClustersMap[currVertexCluster]->find(currVertexNeighborCluster);
         if(it != neighborClustersMap[currVertexCluster]->end()){
         	it->second += weights[i];
@@ -184,7 +188,7 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	unsigned long totalSize = 0;
 
 	sizesOfMaps[0] = 0;
-	#pragma omp parallel for private(i) reduction(+:totalSize)
+	#pragma omp parallel for reduction(+:totalSize)
 	for(unsigned long i = 0; i < numClusters; i++){
 		sizesOfMaps[i + 1] = neighborClustersMap[i]->size();
 		totalSize += neighborClustersMap[i]->size();
@@ -198,12 +202,12 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 
 	unsigned long* sendStartVerticesWithAllBinRanges = (unsigned long*)malloc(totalSize * sizeof(unsigned long));
 	unsigned long* sendDestinationVerticesWithAllBinRanges = (unsigned long*)malloc(totalSize * sizeof(unsigned long));
-	double* sendWeightsWithAllBinRanges = (double *)malloc(totalSize * sizeof(double));
+	long* sendWeightsWithAllBinRanges = (long *)malloc(totalSize * sizeof(long));
 
 	#pragma omp parallel for
 	for(unsigned long i = 0; i < numClusters; i++){
 		unsigned long startWriteIndex = sizesOfMaps[i];
-		map<unsigned long, double>::iterator it;
+		map<unsigned long, long>::iterator it;
 		unsigned long j = 0;
 		for(it = neighborClustersMap[i]->begin(); it != neighborClustersMap[i]->end(); ++it, j++){	// TODO: Proof read
 			sendStartVerticesWithAllBinRanges[startWriteIndex + j] = i;
@@ -232,14 +236,18 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	// Calculate SendDispls
 	int* sendDispls = (int*)malloc(numProcs * sizeof(int));
 
-	#pragma omp parallel for
+	// May be faster if used without openmp
+//	#pragma omp parallel for
 	for(int i = 0; i < numProcs; i++){
 		sendDispls[i] = sizesOfMaps[binRangePrefixSum[i]];
 	}
 
 	// Communicate Counts & Calculate RecvCounts
 	int* recvCounts = (int*)malloc(numProcs * sizeof(int));
-	MPI::COMM_WORLD.Alltoall(sendCounts, 1, MPI::INT, recvCounts, 1, MPI::INT);
+	assert(recvCounts != 0);
+
+	MPI::COMM_WORLD.Alltoall(sendCounts, 1, MPI::INT,
+	    						   recvCounts, 1, MPI::INT);
 
 	// Calculate RecvDispls
 	int* recvDispls = (int*)malloc(numProcs * sizeof(int));
@@ -251,7 +259,11 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	unsigned long numEdgesPerProcAfterBinWiseShuffling = recvDispls[numProcs - 1] + recvCounts[numProcs - 1];
 	unsigned long* perProcStartVerticesRecv = (unsigned long*)malloc(numEdgesPerProcAfterBinWiseShuffling * sizeof(unsigned long));
 	unsigned long* perProcDestinationVerticesRecv = (unsigned long*)malloc(numEdgesPerProcAfterBinWiseShuffling * sizeof(unsigned long));
-	double* perProcWeightsRecv = (double *)malloc(numEdgesPerProcAfterBinWiseShuffling * sizeof(double));
+	long* perProcWeightsRecv = (long *)malloc(numEdgesPerProcAfterBinWiseShuffling * sizeof(long));
+
+	assert(perProcDestinationVerticesRecv != 0);
+	assert(perProcStartVerticesRecv != 0);
+	assert(perProcWeightsRecv != 0);
 
 	// Communicate Data
 	MPI::COMM_WORLD.Alltoallv(sendStartVerticesWithAllBinRanges, sendCounts, sendDispls, MPI::UNSIGNED_LONG,
@@ -260,8 +272,8 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	MPI::COMM_WORLD.Alltoallv(sendDestinationVerticesWithAllBinRanges, sendCounts, sendDispls, MPI::UNSIGNED_LONG,
 							   perProcDestinationVerticesRecv, recvCounts, recvDispls, MPI::UNSIGNED_LONG);
 
-	MPI::COMM_WORLD.Alltoallv(sendWeightsWithAllBinRanges, sendCounts, sendDispls, MPI::DOUBLE,
-								   perProcWeightsRecv, recvCounts, recvDispls, MPI::DOUBLE);
+	MPI::COMM_WORLD.Alltoallv(sendWeightsWithAllBinRanges, sendCounts, sendDispls, MPI::LONG,
+								   perProcWeightsRecv, recvCounts, recvDispls, MPI::LONG);
 
 	// Free unnecessary memory
 	#pragma omp parallel for
@@ -277,9 +289,14 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	free(sizesOfMaps);
 
 
-	// TODO: need to take care of last proc having less than binRange Clusters
-	map<unsigned long,double>** perProcNeighborClustersMap = (map<unsigned long,double>**) malloc(binRanges[rank] * sizeof(map<unsigned long,double>*));
+	// TODO: need to take care of last proc having less than binRange Clusters (I think I did this part)
+	map<unsigned long,long>** perProcNeighborClustersMap = (map<unsigned long,long>**) malloc(binRanges[rank] * sizeof(map<unsigned long,long>*));
 	assert(perProcNeighborClustersMap != 0);
+
+	#pragma omp parallel for
+	for (unsigned long i = 0; i < binRanges[rank]; i++) {
+		perProcNeighborClustersMap[i] = new map<unsigned long,long>();
+	}
 
 	//Create an array of locks for each map corresponding to each cluster
 	omp_lock_t *perProcNeighClustLocks = (omp_lock_t *) malloc (binRanges[rank] * sizeof(omp_lock_t));
@@ -296,26 +313,27 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 
 //	unsigned long* perProcStartVerticesIntermediate = (unsigned long*)malloc(numEdgesPerProcAfterBinWiseShuffling * sizeof(unsigned long));
 //	unsigned long* perProcDestinationVerticesIntermediate = (unsigned long*)malloc(numEdgesPerProcAfterBinWiseShuffling * sizeof(unsigned long));
-//	double* perProcWeightsIntermediate = (double *)malloc(numEdgesPerProcAfterBinWiseShuffling * sizeof(double));
+//	long* perProcWeightsIntermediate = (long *)malloc(numEdgesPerProcAfterBinWiseShuffling * sizeof(long));
 
 
 	#pragma omp parallel for
 	for(unsigned long i = 0; i < numEdgesPerProcAfterBinWiseShuffling; i++){
+		unsigned long offset = binRangePrefixSum[rank];
 		unsigned long currVertex = perProcStartVerticesRecv[i];
 		unsigned long currVertexNeighbor = perProcDestinationVerticesRecv[i];
 		assert(currVertex >= binRangePrefixSum[rank] && currVertex < binRangePrefixSum[rank + 1]);
 
-		map<unsigned long, double>::iterator it;
+		map<unsigned long, long>::iterator it;
 
-		omp_set_lock(&perProcNeighClustLocks[currVertex]);  // Locking the currVertex Map
-		it = perProcNeighborClustersMap[currVertex]->find(currVertexNeighbor); //TODO Proof read
-		if(it != perProcNeighborClustersMap[currVertex]->end){
+		omp_set_lock(&perProcNeighClustLocks[currVertex-offset]);  // Locking the currVertex Map
+		it = perProcNeighborClustersMap[currVertex-offset]->find(currVertexNeighbor); //TODO Proof read
+		if(it != perProcNeighborClustersMap[currVertex-offset]->end()){
 			it->second += perProcWeightsRecv[i];
 		}
 		else{
-			(*(perProcNeighborClustersMap[currVertex]))[currVertexNeighbor] = perProcWeightsRecv[i];
+			(*(perProcNeighborClustersMap[currVertex-offset]))[currVertexNeighbor] = perProcWeightsRecv[i];
 		}
-		omp_unset_lock(&perProcNeighClustLocks[currVertexCluster]); // Unlocking the currVertex Map
+		omp_unset_lock(&perProcNeighClustLocks[currVertex-offset]); // Unlocking the currVertex Map
 	}
 
 	#pragma omp parallel for
@@ -326,8 +344,9 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 
 	sizesOfMaps = (unsigned long*)malloc((binRanges[rank] + 1) * sizeof(unsigned long));
 	totalSize = 0;
+	sizesOfMaps[0] = 0;
 
-	#pragma omp parallel for private(i) reduction(+:totalSize)
+	#pragma omp parallel for reduction(+:totalSize)
 	for(unsigned long i = 0; i < binRanges[rank]; i++){
 		sizesOfMaps[i + 1] = perProcNeighborClustersMap[i]->size();
 		totalSize += perProcNeighborClustersMap[i]->size();
@@ -341,18 +360,18 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 		sizesOfMaps[i + 1] += sizesOfMaps[i];
 	}
 
-	free(perProcStartVerticesIntermediate);
-	free(perProcDestinationVerticesIntermediate);
-	free(perProcWeightsIntermediate);
+//	free(perProcStartVerticesIntermediate);
+//	free(perProcDestinationVerticesIntermediate);
+//	free(perProcWeightsIntermediate);
 
 	unsigned long* perProcStartVertices = (unsigned long*)malloc(totalSize * sizeof(unsigned long));
 	unsigned long* perProcDestinationVertices = (unsigned long*)malloc(totalSize * sizeof(unsigned long));
-	double* perProcWeights = (double *)malloc(totalSize * sizeof(double));
+	long* perProcWeights = (long *)malloc(totalSize * sizeof(long));
 
 	#pragma omp parallel for
 	for(unsigned long i = 0; i < binRanges[rank]; i++){
 		unsigned long startWriteIndex = sizesOfMaps[i];
-		map<unsigned long, double>::iterator it;
+		map<unsigned long, long>::iterator it;
 		unsigned long j = 0;
 		for(it = perProcNeighborClustersMap[i]->begin(); it != perProcNeighborClustersMap[i]->end(); ++it, j++){
 			perProcStartVertices[startWriteIndex + j] = binRangePrefixSum[rank] + i;
@@ -387,10 +406,10 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	free(recvCounts);
 	free(recvDispls);
 
-	sendCounts = (int*)calloc(numProcs * sizeof(int));
-	sendDispls = (int*)calloc(numProcs * sizeof(int));
-	recvCounts = (int*)calloc(numProcs * sizeof(int));
-	recvDispls = (int*)calloc(numProcs * sizeof(int));
+	sendCounts = (int*)calloc(numProcs, sizeof(int));
+	sendDispls = (int*)calloc(numProcs, sizeof(int));
+	recvCounts = (int*)calloc(numProcs, sizeof(int));
+	recvDispls = (int*)calloc(numProcs, sizeof(int));
 
 	// 3. Calculate sendCounts for each proc
 	unsigned long totalEdges = unpartitionedNumEdgesOnEachProc[numProcs];
@@ -426,6 +445,8 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	}
 	// ********************** NEW CODE - END   ************************ //
 
+	// ********************** OLD CODE - START   ************************ //
+
 //	startProcToSend = (unpartitionedNumEdgesOnEachProc[rank] / edgesPerProc[rank]);
 //	countToSendToStartProc = edgesPerProc - (unpartitionedNumEdgesOnEachProc[rank] % edgesPerProc);
 //	if(totalSize - countToSendToStartProc <= 0){
@@ -434,7 +455,7 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 //		countToSendToLastProc = totalSize;
 //	}
 //	else{
-//		numProcFromStartToSendPlusOne = ceil((totalSize - countToSendToStartProc) / (double) edgesPerProc);
+//		numProcFromStartToSendPlusOne = ceil((totalSize - countToSendToStartProc) / (long) edgesPerProc);
 //		lastProcToSend = startProcToSend + numProcFromStartToSendPlusOne;
 //		countToSendToLastProc = (totalSize - countToSendToStartProc) % edgesPerProc;
 //	}
@@ -450,47 +471,57 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 //
 //	sendCounts[lastProcToSend] = countToSendToLastProc;
 
+	// ********************** OLD CODE - END   ************************ //
+
+
 	// 4. Calculate sendDispls for each proc => prefix sum of sendCounts
 	for(int i = 0; i < numProcs - 1; i++){
 		sendDispls[i+1] = sendDispls[i] + sendCounts[i];
 	}
 
 	// 5. Calculate recvCounts for each proc
-	unsigned long startEdgeNumberToRecv = edgesPerProcPrefixSum[rank];
-	unsigned long endEdgeNumberToRecv = edgesPerProcPrefixSum[rank + 1] - 1;
-	int startProcToRecv = -1;
-	int endProcToRecv = -1;
 
-	// Need to write Binary Search Routine here
-	// Currently doing sequential search
-	for(int i = 1; i < numProcs; i++){
-		if(unpartitionedNumEdgesOnEachProc[i] > startEdgeNumberToRecv){
-			startProcToRecv = i - 1;
-		}
-		if(startProcToRecv != -1 && unpartitionedNumEdgesOnEachProc[i] >= endEdgeNumberToRecv){
-			endProcToRecv = i - 1;
-			break;
-		}
-	}
+	// ********************** NEW CODE - START ************************ //
+	MPI::COMM_WORLD.Alltoall(sendCounts, 1, MPI::INT,
+	    						   recvCounts, 1, MPI::INT);
+	// ********************** NEW CODE - END  ************************* //
 
-	int countToRecvFromStartProc = 0;
-	int countToRecvFromLastProc = 0;
-	int numProcsToRecvFromStartProcPlusOne = 0;
-	if(startProcToRecv == endProcToRecv){
-		recvCounts[startProcToRecv] = edgesPerProc[rank]; // TODO: edgesPerProc[startProcToRecv]
-	}
-	else{
-		countToRecvFromStartProc = unpartitionedNumEdgesOnEachProc[startProcToRecv + 1] - startEdgeNumberToRecv;
-		numProcsToRecvFromStartProcPlusOne = endProcToRecv - startProcToRecv;
-		countToRecvFromLastProc = endEdgeNumberToRecv - unpartitionedNumEdgesOnEachProc[endProcToRecv] + 1;
-		recvCounts[startProcToRecv] = countToRecvFromStartProc;
-		recvCounts[endProcToRecv] = countToRecvFromLastProc;
-		for(int i = startProcToRecv + 1; i < endProcToRecv; i++){
-			recvCounts[i] = unpartitionedNumEdgesOnEachProc[i + 1] - unpartitionedNumEdgesOnEachProc[i];
-		}
-	}
+	// ********************** OLD CODE - START  ************************* //
+//	unsigned long startEdgeNumberToRecv = edgesPerProcPrefixSum[rank];
+//	unsigned long endEdgeNumberToRecv = edgesPerProcPrefixSum[rank + 1] - 1;
+//	int startProcToRecv = -1;
+//	int endProcToRecv = -1;
+//
+//	// Need to write Binary Search Routine here
+//	// Currently doing sequential search
+//	for(int i = 1; i < numProcs; i++){
+//		if(unpartitionedNumEdgesOnEachProc[i] > startEdgeNumberToRecv){
+//			startProcToRecv = i - 1;
+//		}
+//		if(startProcToRecv != -1 && unpartitionedNumEdgesOnEachProc[i] > endEdgeNumberToRecv){
+//			endProcToRecv = i - 1;
+//			break;
+//		}
+//	}
+//
+//	int countToRecvFromStartProc = 0;
+//	int countToRecvFromLastProc = 0;
+//	int numProcsToRecvFromStartProcPlusOne = 0;
+//	if(startProcToRecv == endProcToRecv){
+//		recvCounts[startProcToRecv] = edgesPerProc[rank]; // TODO: edgesPerProc[startProcToRecv]
+//	}
+//	else{
+//		countToRecvFromStartProc = unpartitionedNumEdgesOnEachProc[startProcToRecv + 1] - startEdgeNumberToRecv;
+//		numProcsToRecvFromStartProcPlusOne = endProcToRecv - startProcToRecv;
+//		countToRecvFromLastProc = endEdgeNumberToRecv - unpartitionedNumEdgesOnEachProc[endProcToRecv] + 1;
+//		recvCounts[startProcToRecv] = countToRecvFromStartProc;
+//		recvCounts[endProcToRecv] = countToRecvFromLastProc;
+//		for(int i = startProcToRecv + 1; i < endProcToRecv; i++){
+//			recvCounts[i] = unpartitionedNumEdgesOnEachProc[i + 1] - unpartitionedNumEdgesOnEachProc[i];
+//		}
+//	}
 
-
+	// ********************** OLD CODE - START  ************************* //
 
 	// 6. Calculate recvDispls for each proc
 	// Prefix sum to calculate recvDispls
@@ -506,7 +537,7 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 
 	newG->startVertices = (unsigned long*)malloc(numEdgesOnThisProc * sizeof(unsigned long));
 	newG->destinationVertices = (unsigned long*)malloc(numEdgesOnThisProc * sizeof(unsigned long));
-	newG->weights = (double*)malloc(numEdgesOnThisProc * sizeof(double));
+	newG->weights = (long*)malloc(numEdgesOnThisProc * sizeof(long));
 
 	MPI::COMM_WORLD.Alltoallv(perProcStartVertices, sendCounts, sendDispls, MPI::UNSIGNED_LONG,
 							   newG->startVertices, recvCounts, recvDispls, MPI::UNSIGNED_LONG);
@@ -514,8 +545,8 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	MPI::COMM_WORLD.Alltoallv(perProcDestinationVertices, sendCounts, sendDispls, MPI::UNSIGNED_LONG,
 							   newG->destinationVertices, recvCounts, recvDispls, MPI::UNSIGNED_LONG);
 
-	MPI::COMM_WORLD.Alltoallv(perProcWeights, sendCounts, sendDispls, MPI::UNSIGNED_LONG,
-							   newG->weights, recvCounts, recvDispls, MPI::UNSIGNED_LONG);
+	MPI::COMM_WORLD.Alltoallv(perProcWeights, sendCounts, sendDispls, MPI::LONG,
+							   newG->weights, recvCounts, recvDispls, MPI::LONG);
 
 	newG->numOfVertices = numClusters;
 	newG->numOfEdges = totalEdges;
@@ -523,7 +554,7 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	// Calculate vertexStartPointers
 	// TODO: can this be done using openmp?
 	unsigned long indexToVertexStartPointers = 1;
-	unsigned long numVerticesOnThisProc = newG->startVertices[numEdgesOnThisProc] - newG->startVertices[0];
+	unsigned long numVerticesOnThisProc = newG->startVertices[numEdgesOnThisProc - 1] - newG->startVertices[0] + 1;
 	newG->vertexStartPointers = (unsigned long*)malloc(numVerticesOnThisProc * sizeof(unsigned long));
 	newG->vertexStartPointers[0] = 0;
 	for(unsigned long i = 1; i < numEdgesOnThisProc; i++){
@@ -542,12 +573,16 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long &C, uns
 	free(perProcDestinationVertices);
 	free(perProcWeights);
 
-	// TODO: Time the function and return time
+	time2 = omp_get_wtime();
 
-	return 0;
+	time = time2 - time1;
+
+	MPI::COMM_WORLD.Allreduce(MPI::IN_PLACE, &time, 1, MPI::DOUBLE, MPI::MAX);
+
+	return time;
 }
 
-int lookup(unsigned long& arr, unsigned long target, int sizeOfArr){
+int lookup(unsigned long* arr, unsigned long target, int sizeOfArr){
 	int lo = 0, hi = sizeOfArr - 1;
 	int mid;
 	   while(lo < hi){
@@ -563,4 +598,25 @@ int lookup(unsigned long& arr, unsigned long target, int sizeOfArr){
 		   }
 	   }
 	return lo;
+}
+
+void calculateStartAndEndIndices(unsigned long* startIndices, unsigned long* endIndices, int numProcs,
+						unsigned long valueToDivideAmongProcs){
+	unsigned long quotient = valueToDivideAmongProcs / numProcs;
+	int remainder = valueToDivideAmongProcs % numProcs;
+
+	unsigned long valuesOnEachProc[numProcs];
+	for(int i = 0; i < numProcs; i++){
+		if(i < remainder){
+			valuesOnEachProc[i] = quotient + 1;
+		}else{
+			valuesOnEachProc[i] = quotient;
+		}
+	}
+	startIndices[0] = 0;
+	endIndices[numProcs - 1] = valueToDivideAmongProcs - 1;
+	for(int i = 1; i < numProcs; i++){
+		startIndices[i] = startIndices[i - 1] + valuesOnEachProc[i];
+		endIndices[i - 1] = startIndices[i] - 1;
+	}
 }

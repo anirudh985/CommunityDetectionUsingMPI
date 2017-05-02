@@ -9,9 +9,10 @@
 #define LOUVAINMULTIPHASE_H_
 
 #include "utilityFunctions.h"
+#include "parallelLouvain.h"
 #include "Graph.h"
 
-void runLouvain(Graph &G, unsigned long &originalCommunities, double threshold, double C_threshold);
+void runLouvain(Graph *G, unsigned long *originalCommunities, double threshold);
 
 
 #endif /* LOUVAINMULTIPHASE_H_ */

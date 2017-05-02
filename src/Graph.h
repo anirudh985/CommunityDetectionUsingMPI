@@ -8,6 +8,8 @@
 #ifndef GRAPH_H_
 #define GRAPH_H_
 
+#include <cstdlib>
+
 class Graph {
 public:
 	Graph();
@@ -18,7 +20,7 @@ public:
 	unsigned long* vertexStartPointers;
 	unsigned long* startVertices;
 	unsigned long* destinationVertices;
-	double* weights;
+	long* weights;
 
 };
 
