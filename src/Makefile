@@ -16,7 +16,7 @@ COMPILE = $(CXX) $(CXXFLAGS) -c
 EXE = louvainMain
 
 # All object files
-OBJS = Graph.o louvainMultiPhase.o louvainMain.o utilityFunctions.o parallelLouvain.o
+OBJS = Graph.o louvainMultiPhase.o louvainMain.o utilityFunctions.o parallelLouvain.o ReadFile.o ReformatFile.o
 
 # The first target is the one that is executed when you invoke
 # "make". The line describing the action starts with <TAB>. Variable

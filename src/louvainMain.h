@@ -14,6 +14,7 @@
 #include <omp.h>
 #include "Graph.h"
 #include "louvainMultiPhase.h"
+#include "ReadFile.h"
 
 int main(int argc, char** argv);
 

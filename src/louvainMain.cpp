@@ -19,8 +19,8 @@ int main(int argc, char* argv[]){
 	Graph *G = new Graph();
 
 // TODO: Write a function to create Graph from input File
-//	buildGraphFromFile(&G);
-	buildGraph(G, rank);
+	buildGraphFromFile(G);
+//	buildGraph(G, rank);
 	unsigned long numOfVertices = G->numOfVertices;
 	unsigned long *finalCommunities = (unsigned long *) malloc(numOfVertices * sizeof(unsigned long));
 

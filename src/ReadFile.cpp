@@ -7,24 +7,13 @@
 * c R-MAT graph saved from XMT	p sp 3010 10890. Total Datasize = 85364048
 */
 
-#include <sstream>
-#include <iostream>
-#include <string>
-#include <cstring>
-#include <fstream>
-#include <algorithm>
-#include <vector>
-#include <iterator>
-#include <omp.h>
-#include "ReformatFile.h"
-#include <mpi.h>
+#include "ReadFile.h"
 
 #define NUM_THREADS 8
 
 using namespace std;
-void readFileInParallel(char* buffer, size_t size, int lineSize, int numberOfProcess, int processID);
 
-int main(int argc, char *argv[]) {
+void buildGraphFromFile(Graph* G){
 
 	FILE *filePointer;
 	long fileSize;
@@ -32,12 +21,11 @@ int main(int argc, char *argv[]) {
 	size_t result;
 
 	int rank, size;
-	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	
 	// Run code formattor
-	// runFormattor();
+//	 runFormattor();
 
 	filePointer = fopen("out.txt", "rb");
 	if (filePointer == NULL) {
@@ -62,14 +50,13 @@ int main(int argc, char *argv[]) {
 		cout << "Unable to Read from File" << "\n";
 	}
 
-	readFileInParallel(buffer, fileSize, getLineSize(), size, rank);
+	readFileInParallel(buffer, fileSize, getLineSize(), size, rank, G);
 
 	fclose(filePointer);
 	free(buffer);
-	return 0;
 }
 
-void readFileInParallel(char* buffer, size_t size, int lineSize, int numberOfProcess, int rank) {
+void readFileInParallel(char* buffer, size_t size, int lineSize, int numberOfProcess, int rank, Graph* G) {
 	int numberOfLines = ((size / lineSize) / numberOfProcess);
 
 	// todo : set graph number of edges to the number of lines here
@@ -79,14 +66,16 @@ void readFileInParallel(char* buffer, size_t size, int lineSize, int numberOfPro
 	int lineNum2 = ((rank) * numberOfLines) - 1;
 
 	unsigned long numOfVertices = strtoul(buffer + lineNum1 * lineSize, NULL, 10) - strtoul(buffer + lineNum2 * lineSize, NULL, 10);
+	numOfVertices = 3010;
 
 	cout << "Number of vertices for rank " << rank << " is " << numOfVertices << "\n";
 
 	unsigned long numOfEdges = numberOfLines;
+	unsigned long numOfEdges1 = 10888;
 	unsigned long* vertexStartPointers = (unsigned long*)malloc(sizeof(unsigned long) * numOfVertices + 1);
 	unsigned long* startVertices = (unsigned long*)malloc(sizeof(unsigned long) * numOfEdges);
 	unsigned long* destinationVertices = (unsigned long*)malloc(sizeof(unsigned long) * numOfEdges);
-	double* weights = (double*)malloc(sizeof(double) * numOfEdges);
+	long* weights = (long*)malloc(sizeof(long) * numOfEdges);
 
 	unsigned long prevLong = -1l;
 	int vCounter = 0;
@@ -105,7 +94,7 @@ void readFileInParallel(char* buffer, size_t size, int lineSize, int numberOfPro
 
 		unsigned long source = strtoul(s1, NULL, 10);
 		unsigned long destination = strtoul(s2, NULL, 10);
-		double weight = strtod(s3, NULL);
+		long weight = strtol(s3, NULL, 10);
 
 		if (prevLong != source) {
 			vertexStartPointers[++vCounter] = i;
@@ -117,5 +106,13 @@ void readFileInParallel(char* buffer, size_t size, int lineSize, int numberOfPro
 
 		prevLong = source;
 	}
-	getchar();
+
+	G = new Graph();
+	G->numOfVertices = numOfVertices;
+	G->numOfEdges = numOfEdges1;
+	G->vertexStartPointers = vertexStartPointers;
+	G->startVertices = startVertices;
+	G->destinationVertices = destinationVertices;
+	G->weights = weights;
+
 }
