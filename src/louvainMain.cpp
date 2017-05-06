@@ -16,6 +16,16 @@ int main(int argc, char* argv[]){
 
 	int rank = MPI::COMM_WORLD.Get_rank();
 
+	int numberOfThreads;
+
+	#pragma omp parallel
+	{
+		numberOfThreads = omp_get_num_threads();
+	}
+
+	if(rank == 0)
+		cout << "Number of Threads " << numberOfThreads << endl;
+
 	Graph *G = new Graph();
 
 // TODO: Write a function to create Graph from input File
@@ -24,7 +34,7 @@ int main(int argc, char* argv[]){
 	unsigned long numOfVertices = G->numOfVertices;
 	unsigned long *finalCommunities = (unsigned long *) malloc(numOfVertices * sizeof(unsigned long));
 
-	runLouvain(G, finalCommunities, 0.0001);
+	runLouvain(G, finalCommunities, 1E-12);
 
 
 	if(rank == 0){

@@ -45,6 +45,9 @@ void runLouvain(Graph *G, unsigned long *finalCommunities, double threshold){
 		totTimeClustering += tmpTime;
 		totItr += tmpItr;
 
+//		if(rank == 0)
+//			cout << "Phase: " << phaseNumber << " --> " << "Modularity: " << currModularity << endl;
+
 		numClusters = renumberClustersContiguously(C, G->numOfVertices);
 //		printf("Number of unique clusters: %ld\n", numClusters);
 
@@ -63,11 +66,11 @@ void runLouvain(Graph *G, unsigned long *finalCommunities, double threshold){
 			}
 		}
 
-		if((phaseNumber > 200) || (totItr > 10000)){
+		if((phaseNumber > 10) || (totItr > 10000)){
 			break;
 		}
 
-		if(currModularity - prevModularity > threshold){
+		if(currModularity > prevModularity){
 			newGraph = new Graph();
 			tmpTime = consolidateGraphForNextPhase(G, newGraph, C, numClusters);
 			totTimeBuildingPhase += tmpTime;

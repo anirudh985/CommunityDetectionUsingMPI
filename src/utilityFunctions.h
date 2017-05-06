@@ -20,9 +20,9 @@ inline unsigned long getSizeOfArray(unsigned long* arr){
 	return (unsigned long) sizeof(arr)/sizeof(unsigned long);
 }
 
-inline int ceil(double number){
-	return (number - (int)number) > 0 ? (int)number + 1 : (int)number;
-}
+//inline int ceil(double number){
+//	return (number - (int)number) > 0 ? (int)number + 1 : (int)number;
+//}
 
 void calculateRanges(unsigned long* valuesOnEachProc, unsigned long* valuesOnEachProcPrefixSum, int rank, int numProcs, unsigned long valueToDivideAmongProcs);
 

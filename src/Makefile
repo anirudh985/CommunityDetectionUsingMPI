@@ -7,7 +7,7 @@
 CXX = mpic++
 
 # C++ compiler flags
-CXXFLAGS = -g -Wall -fopenmp
+CXXFLAGS = -Ofast -fopenmp -std=c++0x
 
 # Creating a .o file
 COMPILE = $(CXX) $(CXXFLAGS) -c

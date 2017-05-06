@@ -14,8 +14,6 @@ double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 				double threshold, double *totTime, int *numItr,
 				int rank, int numProcs){
 
-	int numberOfThreads = omp_get_num_threads();
-
 	double time1, time2, time;
 
 	time1 = omp_get_wtime();
@@ -97,6 +95,7 @@ double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 
 			unsigned long startPointer = vertexStartPointers[i];
 			unsigned long endPointer = i+1 == numOfVerticesOnProc ? numOfEdgesOnThisProc : vertexStartPointers[i+1];
+//			unsigned long endPointer = vertexStartPointers[i+1];
 
 			long selfLoop = 0;
 
@@ -112,7 +111,7 @@ double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 												   weights,
 												   currCommunityAssignment, currVertex);
 
-				eii[i] = communityDegreeMap[currCommunityAssignment[currVertex]];
+				eii[i] += communityDegreeMap[currCommunityAssignment[currVertex]];
 
 				targetCommunityAssignment[i] = findTargetCommunityOfCurrVertex(communityDegreeMap,
 																			selfLoop,
@@ -144,7 +143,7 @@ double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 		currModularity = calculateModularity(eii, constantForSecondTerm,
 											 degreesOfCommunities, numOfVertices, numOfVerticesOnProc);
 
-		if(currModularity - prevModularity < thresMod && true){
+		if(currModularity < prevModularity){
 			break;
 		}
 
@@ -153,7 +152,7 @@ double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 			prevModularity = Lower;
 
 		MPI::COMM_WORLD.Allreduce(MPI::IN_PLACE, updateDegreesOfCommunities,
-					  numOfVertices, MPI::LONG, MPI::SUM); //TODO
+					  numOfVertices, MPI::LONG, MPI::SUM);
 		MPI::COMM_WORLD.Allreduce(MPI::IN_PLACE, updateSizeOfCommunities,
 							  numOfVertices, MPI::LONG, MPI::SUM);
 
@@ -170,9 +169,9 @@ double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 
 
 		int numOfElementsToSend = numOfVerticesOnProc - offsetToSend;
-		int recvCounts[numProcs];
+		int* recvCounts = (int*)malloc(numProcs * sizeof(int));
 
-		MPI::COMM_WORLD.Allgather(&numOfElementsToSend, 1, MPI::INT, &recvCounts, 1, MPI::INT);
+		MPI::COMM_WORLD.Allgather(&numOfElementsToSend, 1, MPI::INT, recvCounts, 1, MPI::INT);
 
 		//Calculate Prefix Sum
 		int displacements[numProcs];
@@ -189,7 +188,7 @@ double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 					   currCommunityAssignment,
 					   recvCounts,
 					   displacements,
-					   MPI::UNSIGNED_LONG);//TODO
+					   MPI::UNSIGNED_LONG);
 
 	}// end of while(true)
 	time2 = omp_get_wtime();
@@ -203,14 +202,16 @@ double louvain(Graph *G, unsigned long *communityInfo, double Lower,
 	#pragma omp parallel for
 	for (long i = 0; i < numOfVertices; i++) {
 		communityInfo[i] = pastCommunityAssignment[i];
+		assert(communityInfo[i] < numOfVertices);
 	}
 
+	free(degreesOfCommunities);
 	free(pastCommunityAssignment);
 	free(currCommunityAssignment);
 	free(targetCommunityAssignment);
 	free(vertexDegrees);
 	free(sizeOfCommunities);
-	free(degreesOfCommunities);
+//	free(degreesOfCommunities);
 	free(updateSizeOfCommunities);
 	free(updateDegreesOfCommunities);
 
@@ -434,8 +435,8 @@ unsigned long findTargetCommunityOfCurrVertex(map<unsigned long, long> &communit
 	double curGain = 0;
 	double maxGain = 0;
 	unsigned long currVertexCommunity = currCommunityAssignment[currVertex];
-	double eix = communityDegreeMap[currVertexCommunity]- selfLoop;
-	double ax = degreesOfCommunities[currVertex] - vertexDegree;
+	double eix = (double) (communityDegreeMap[currVertexCommunity]- selfLoop);
+	double ax = (double) (degreesOfCommunities[currVertexCommunity] - vertexDegree);
 	double eiy = 0;
 	double ay = 0;
 
@@ -481,17 +482,21 @@ double calculateModularity(double *eii, double constantForSecondTerm,
 		partialE2_XX += eii[i];
 	}
 
-	unsigned long startIndices[numProcs];
-	unsigned long endIndices[numProcs];
-	calculateStartAndEndIndices(&startIndices[0], &endIndices[0], numProcs, numOfVertices);
+	unsigned long* startIndices = (unsigned long*)malloc(numProcs * sizeof(unsigned long));
+	unsigned long* endIndices = (unsigned long*)malloc(numProcs * sizeof(unsigned long));
+	calculateStartAndEndIndices(startIndices, endIndices, numProcs, numOfVertices);
 
 	#pragma omp parallel for reduction(+:partialA2_X)
 	for(unsigned long i = startIndices[rank]; i < endIndices[rank]; i++){
-		partialA2_X += (double) degreesOfCommunities[i];
+		partialA2_X += (double) degreesOfCommunities[i] * (double) degreesOfCommunities[i];
 	}
 
 	double partial_e2_a2[2] = {partialE2_XX, partialA2_X};
 
 	MPI::COMM_WORLD.Allreduce(&partial_e2_a2, &e_xx__a2_x, 2, MPI::DOUBLE, MPI::SUM);
+
+	free(startIndices);
+	free(endIndices);
+
 	return (e_xx__a2_x[0]*constantForSecondTerm) - (e_xx__a2_x[1]*constantForSecondTerm*constantForSecondTerm);
 }

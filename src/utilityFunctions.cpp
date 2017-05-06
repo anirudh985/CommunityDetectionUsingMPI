@@ -66,7 +66,7 @@ unsigned long renumberClustersContiguously(unsigned long *C, unsigned long size)
 #endif
   double time1 = omp_get_wtime();
   //Count the number of unique communities and internal edges
-  map<unsigned long, unsigned long> clusterLocalMap; //Map each neighbor's cluster to a local number
+  map<unsigned long, unsigned long>* clusterLocalMap = new map<unsigned long, unsigned long>(); //Map each neighbor's cluster to a local number
   map<unsigned long, unsigned long>::iterator storedAlready;
   unsigned long numUniqueClusters = 0;
 
@@ -75,11 +75,11 @@ unsigned long renumberClustersContiguously(unsigned long *C, unsigned long size)
   for(unsigned long i=0; i<size; i++) {
     assert(C[i]<size);
     if (C[i] >= 0) { //Only if it is a valid number
-      storedAlready = clusterLocalMap.find(C[i]); //Check if it already exists
-      if( storedAlready != clusterLocalMap.end() ) {	//Already exists
+      storedAlready = clusterLocalMap->find(C[i]); //Check if it already exists
+      if( storedAlready != clusterLocalMap->end() ) {	//Already exists
 	C[i] = storedAlready->second; //Renumber the cluster id
       } else {
-	clusterLocalMap[C[i]] = numUniqueClusters; //Does not exist, add to the map
+	(*clusterLocalMap)[C[i]] = numUniqueClusters; //Does not exist, add to the map
 	C[i] = numUniqueClusters; //Renumber the cluster id
 	numUniqueClusters++; //Increment the number
       }
@@ -87,6 +87,8 @@ unsigned long renumberClustersContiguously(unsigned long *C, unsigned long size)
   }//End of for(i)
   time1 = omp_get_wtime() - time1;
 //  printf("Time to renumber clusters: %lf\n", time1);
+
+  delete clusterLocalMap;
 
   return numUniqueClusters; //Return the number of unique cluster ids
 }//End of renumberClustersContiguously()
@@ -216,6 +218,14 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long *C, uns
 		}
 	}
 
+	#pragma omp parallel for
+	for(unsigned long i = 0; i < numClusters; i++){
+		neighborClustersMap[i]->clear();
+		free(neighborClustersMap[i]);
+	}
+
+	free(neighborClustersMap);
+
 
 	// Calculate SendCounts
 //	unsigned long binRange = numClusters / numProcs;
@@ -276,12 +286,6 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long *C, uns
 								   perProcWeightsRecv, recvCounts, recvDispls, MPI::LONG);
 
 	// Free unnecessary memory
-	#pragma omp parallel for
-	for(unsigned long i = 0; i < numClusters; i++){
-		free(neighborClustersMap[i]);
-	}
-
-	free(neighborClustersMap);
 	free(sendStartVerticesWithAllBinRanges);
 	free(sendDestinationVerticesWithAllBinRanges);
 	free(sendWeightsWithAllBinRanges);
@@ -382,6 +386,7 @@ double consolidateGraphForNextPhase(Graph *G, Graph *newG, unsigned long *C, uns
 
 	#pragma omp parallel for
 	for(unsigned long i = 0; i < binRanges[rank]; i++){
+		perProcNeighborClustersMap[i]->clear();
 		free(perProcNeighborClustersMap[i]);
 	}
 
